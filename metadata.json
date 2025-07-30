@@ -1,0 +1,6 @@
+{
+  "name": "Oi, Bingo!!",
+  "description": "A sleek and modern web application to draw numbers for a game of Bingo. Features a dynamic board, called number history, and multiple game modes like Blackout and Pattern.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
