@@ -11,7 +11,9 @@ import PatternSelector from './components/PatternSelector';
 import { CircleDashed } from 'lucide-react';
 import ModeSelector from './components/ModeSelector';
 import EventSetupModal from './components/EventSetupModal';
+import CardCheckerPage from './components/CardCheckerPage';
 
+type AppPage = 'caller' | 'checker';
 
 const initializeNumbers = (): BingoNumber[] => {
   const numbers: BingoNumber[] = [];
@@ -74,6 +76,9 @@ const App: React.FC = () => {
     const [logoUrl, setLogoUrl] = useState<string>(() => {
         return localStorage.getItem('bingo-logoUrl') || '';
     });
+    const [activePage, setActivePage] = useState<AppPage>(() => {
+        return localStorage.getItem('bingo-activePage') === 'checker' ? 'checker' : 'caller';
+    });
     const [isEventSetupModalOpen, setIsEventSetupModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -108,6 +113,10 @@ const App: React.FC = () => {
             console.error("Failed to save customization state to localStorage", error);
         }
     }, [headerText, logoUrl]);
+
+    useEffect(() => {
+        localStorage.setItem('bingo-activePage', activePage);
+    }, [activePage]);
 
   const availableNumbers = useMemo(() => allNumbers.filter(n => !n.called), [allNumbers]);
   const hasActivePattern = useMemo(() => selectedPattern.some(p => p), [selectedPattern]);
@@ -206,7 +215,8 @@ const App: React.FC = () => {
         accept="image/*"
         aria-hidden="true"
       />
-      <header className="w-full max-w-7xl mx-auto flex justify-between items-center mb-6">
+      <header className="w-full max-w-screen-2xl mx-auto flex flex-col gap-4 mb-6">
+        <div className="w-full flex justify-between items-center gap-4">
         <button
           onClick={() => setIsEventSetupModalOpen(true)}
           className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity group"
@@ -222,11 +232,35 @@ const App: React.FC = () => {
               {headerText}
           </h1>
         </button>
-        <p className="font-roboto-mono text-lg text-purple-400 flex-shrink-0 ml-4">{availableNumbers.length} left</p>
+        <p className="font-roboto-mono text-lg text-purple-400 flex-shrink-0 ml-4">
+            {activePage === 'caller' ? `${availableNumbers.length} left` : 'checker'}
+        </p>
+        </div>
+        <nav className="flex w-full sm:w-auto bg-slate-800/70 border border-slate-700 rounded-xl p-1" aria-label="App pages">
+            {[
+                { id: 'caller' as const, label: 'Caller' },
+                { id: 'checker' as const, label: 'Card Checker' },
+            ].map((page) => {
+                const isActive = activePage === page.id;
+                return (
+                    <button
+                        key={page.id}
+                        onClick={() => setActivePage(page.id)}
+                        className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400 ${
+                            isActive ? 'bg-cyan-400 text-slate-950' : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                        }`}
+                        aria-current={isActive ? 'page' : undefined}
+                    >
+                        {page.label}
+                    </button>
+                );
+            })}
+        </nav>
       </header>
 
-      <main className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 flex flex-col gap-8">
+      {activePage === 'caller' ? (
+      <main className="w-full max-w-screen-2xl mx-auto grid grid-cols-1 lg:grid-cols-3 2xl:grid-cols-4 gap-8">
+        <div className="lg:col-span-2 2xl:col-span-3 flex flex-col gap-8">
           <CurrentNumberDisplay currentNumber={currentNumber} isDrawing={isDrawing} />
           <BingoBoard 
             allNumbers={allNumbers} 
@@ -249,14 +283,21 @@ const App: React.FC = () => {
             </div>
         </div>
       </main>
+      ) : (
+        <main className="w-full">
+          <CardCheckerPage />
+        </main>
+      )}
       
-      <FloatingDrawButton
+      {activePage === 'caller' && (
+        <FloatingDrawButton
         onClick={handleDrawNumber}
         isDrawing={isDrawing}
         isGameOver={isGameOver}
         gameMode={gameMode}
         noPatternSelected={noPatternSelected}
-      />
+        />
+      )}
 
        <EventSetupModal
         isOpen={isEventSetupModalOpen}
@@ -268,7 +309,7 @@ const App: React.FC = () => {
         onUploadClick={() => fileInputRef.current?.click()}
       />
 
-       <footer className="w-full max-w-7xl mx-auto text-center mt-12 text-slate-500 text-sm">
+       <footer className="w-full max-w-screen-2xl mx-auto text-center mt-12 text-slate-500 text-sm">
             <p>&copy; {new Date().getFullYear()} Oi, Bingo!!. All rights reserved.</p>
         </footer>
     </div>
