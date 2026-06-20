@@ -507,8 +507,18 @@ const App: React.FC = () => {
         </div>
       )}
 
-       <footer className="w-full max-w-screen-2xl mx-auto text-center mt-12 text-slate-500 text-sm">
-            <p>&copy; {new Date().getFullYear()} Oi, Bingo!!. All rights reserved.</p>
+       <footer className="w-full max-w-screen-2xl mx-auto text-center mt-12 text-sm text-slate-500">
+            <p>
+              Make this webapp better:{' '}
+              <a
+                href="https://github.com/justinecabel/oi-bingo"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-cyan-300 underline-offset-4 hover:text-cyan-200 hover:underline focus:outline-none focus:ring-2 focus:ring-cyan-400 rounded-sm"
+              >
+                justinecabel/oi-bingo
+              </a>
+            </p>
         </footer>
     </div>
   );
