@@ -5,6 +5,7 @@ import { BINGO_LETTERS, BINGO_RANGES } from '../constants';
 interface CurrentNumberDisplayProps {
   currentNumber: BingoNumber | null;
   isDrawing: boolean;
+  shouldReveal?: boolean;
   onRevealStateChange?: (isRevealing: boolean) => void;
   onRevealComplete?: (number: BingoNumber) => void;
 }
@@ -16,12 +17,12 @@ const getRandomBingoNumber = (): BingoNumber => {
     return { letter, number, called: false };
 }
 
-const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumber, isDrawing, onRevealStateChange, onRevealComplete }) => {
+const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumber, isDrawing, shouldReveal = false, onRevealStateChange, onRevealComplete }) => {
   const [animatingNumber, setAnimatingNumber] = useState<BingoNumber | null>(null);
   const [revealStep, setRevealStep] = useState(3);
   const intervalRef = useRef<number | null>(null);
   const revealCompleteStep = currentNumber ? String(currentNumber.number).length + 1 : 3;
-  const isRevealing = !isDrawing && Boolean(currentNumber) && revealStep < revealCompleteStep;
+  const isRevealing = !isDrawing && shouldReveal && Boolean(currentNumber) && revealStep < revealCompleteStep;
   const completedRevealRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -29,14 +30,14 @@ const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumb
   }, [isRevealing, onRevealStateChange]);
 
   useEffect(() => {
-    if (isDrawing || !currentNumber) return;
+    if (isDrawing || !currentNumber || !shouldReveal) return;
 
     const revealKey = `${currentNumber.letter}-${currentNumber.number}`;
     if (revealStep >= revealCompleteStep && completedRevealRef.current !== revealKey) {
       completedRevealRef.current = revealKey;
       onRevealComplete?.(currentNumber);
     }
-  }, [currentNumber, isDrawing, onRevealComplete, revealCompleteStep, revealStep]);
+  }, [currentNumber, isDrawing, onRevealComplete, revealCompleteStep, revealStep, shouldReveal]);
   
   useEffect(() => {
     if (isDrawing || isRevealing) {
@@ -64,6 +65,12 @@ const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumb
       return;
     }
 
+    if (!shouldReveal) {
+      setRevealStep(revealCompleteStep);
+      completedRevealRef.current = `${currentNumber.letter}-${currentNumber.number}`;
+      return;
+    }
+
     setRevealStep(0);
     completedRevealRef.current = null;
     const timers = [
@@ -76,7 +83,7 @@ const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumb
     }
 
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [currentNumber, isDrawing]);
+  }, [currentNumber, isDrawing, revealCompleteStep, shouldReveal]);
 
   const displayContent = () => {
     const numberToDisplay = isDrawing ? animatingNumber : currentNumber;

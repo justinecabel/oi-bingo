@@ -8,12 +8,27 @@ import DrawnHistory from './components/DrawnHistory';
 import ControlPanel from './components/ControlPanel';
 import FloatingDrawButton from './components/FloatingDrawButton';
 import PatternSelector from './components/PatternSelector';
-import { CircleDashed, X } from 'lucide-react';
+import { CircleDashed, Redo2, Undo2, X } from 'lucide-react';
 import ModeSelector from './components/ModeSelector';
 import EventSetupModal from './components/EventSetupModal';
 import CardCheckerPage from './components/CardCheckerPage';
 
 type AppPage = 'caller' | 'checker';
+type HistoryControls = {
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+};
+type CallerSnapshot = {
+  allNumbers: BingoNumber[];
+  drawnNumbers: BingoNumber[];
+  currentNumber: BingoNumber | null;
+  gameMode: GameMode;
+  selectedPattern: boolean[];
+  headerText: string;
+  logoUrl: string;
+};
 
 const initializeNumbers = (): BingoNumber[] => {
   const numbers: BingoNumber[] = [];
@@ -83,7 +98,95 @@ const App: React.FC = () => {
     });
     const [isEventSetupModalOpen, setIsEventSetupModalOpen] = useState(false);
     const [isNewGameConfirmOpen, setIsNewGameConfirmOpen] = useState(false);
+    const [historyVersion, setHistoryVersion] = useState(0);
+    const [checkerHistoryControls, setCheckerHistoryControls] = useState<HistoryControls>({
+        canUndo: false,
+        canRedo: false,
+        undo: () => undefined,
+        redo: () => undefined,
+    });
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const callerPastRef = useRef<CallerSnapshot[]>([]);
+    const callerFutureRef = useRef<CallerSnapshot[]>([]);
+    const callerLastSnapshotRef = useRef<CallerSnapshot | null>(null);
+    const isRestoringCallerRef = useRef(false);
+
+  const callerSnapshot = useMemo<CallerSnapshot>(() => ({
+    allNumbers,
+    drawnNumbers,
+    currentNumber,
+    gameMode,
+    selectedPattern,
+    headerText,
+    logoUrl,
+  }), [allNumbers, currentNumber, drawnNumbers, gameMode, headerText, logoUrl, selectedPattern]);
+
+  const callerSnapshotKey = useMemo(() => JSON.stringify(callerSnapshot), [callerSnapshot]);
+
+  const restoreCallerSnapshot = useCallback((snapshot: CallerSnapshot) => {
+    isRestoringCallerRef.current = true;
+    setAllNumbers(snapshot.allNumbers);
+    setDrawnNumbers(snapshot.drawnNumbers);
+    setCurrentNumber(snapshot.currentNumber);
+    setPendingNumber(null);
+    setIsDrawing(false);
+    setIsRevealing(false);
+    setGameMode(snapshot.gameMode);
+    setSelectedPattern(snapshot.selectedPattern);
+    setHeaderText(snapshot.headerText);
+    setLogoUrl(snapshot.logoUrl);
+  }, []);
+
+  const undoCaller = useCallback(() => {
+    if (isDrawing || isRevealing) return;
+    const previous = callerPastRef.current.pop();
+    if (!previous || !callerLastSnapshotRef.current) return;
+    callerFutureRef.current.push(callerLastSnapshotRef.current);
+    callerLastSnapshotRef.current = previous;
+    restoreCallerSnapshot(previous);
+    setHistoryVersion((value) => value + 1);
+  }, [isDrawing, isRevealing, restoreCallerSnapshot]);
+
+  const redoCaller = useCallback(() => {
+    if (isDrawing || isRevealing) return;
+    const next = callerFutureRef.current.pop();
+    if (!next || !callerLastSnapshotRef.current) return;
+    callerPastRef.current.push(callerLastSnapshotRef.current);
+    callerLastSnapshotRef.current = next;
+    restoreCallerSnapshot(next);
+    setHistoryVersion((value) => value + 1);
+  }, [isDrawing, isRevealing, restoreCallerSnapshot]);
+
+  useEffect(() => {
+    if (!callerLastSnapshotRef.current) {
+        callerLastSnapshotRef.current = callerSnapshot;
+        return;
+    }
+
+    if (isRestoringCallerRef.current) {
+        callerLastSnapshotRef.current = callerSnapshot;
+        isRestoringCallerRef.current = false;
+        setHistoryVersion((value) => value + 1);
+        return;
+    }
+
+    const previousKey = JSON.stringify(callerLastSnapshotRef.current);
+    if (previousKey === callerSnapshotKey) return;
+
+    callerPastRef.current.push(callerLastSnapshotRef.current);
+    callerFutureRef.current = [];
+    callerLastSnapshotRef.current = callerSnapshot;
+    setHistoryVersion((value) => value + 1);
+  }, [callerSnapshot, callerSnapshotKey]);
+
+  const callerHistoryControls = useMemo<HistoryControls>(() => ({
+    canUndo: !isDrawing && !isRevealing && callerPastRef.current.length > 0,
+    canRedo: !isDrawing && !isRevealing && callerFutureRef.current.length > 0,
+    undo: undoCaller,
+    redo: redoCaller,
+  }), [historyVersion, isDrawing, isRevealing, redoCaller, undoCaller]);
+
+  const activeHistoryControls = activePage === 'checker' ? checkerHistoryControls : callerHistoryControls;
 
   useEffect(() => {
     try {
@@ -238,21 +341,43 @@ const App: React.FC = () => {
       />
       <header className="w-full max-w-screen-2xl mx-auto flex flex-col gap-4 mb-6">
         <div className="w-full flex justify-between items-center gap-4">
-        <button
-          onClick={() => setIsEventSetupModalOpen(true)}
-          className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity group"
-          aria-label="Edit event title and logo"
-          title="Edit event title and logo"
-        >
-          {logoUrl ? (
-              <img src={logoUrl} alt="Custom Bingo Logo" className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover bg-slate-700" />
-          ) : (
-              <CircleDashed className="text-purple-400 w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0"/>
-          )}
-          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-white text-left">
-              {headerText}
-          </h1>
-        </button>
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            onClick={() => setIsEventSetupModalOpen(true)}
+            className="flex min-w-0 items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity group"
+            aria-label="Edit event title and logo"
+            title="Edit event title and logo"
+          >
+            {logoUrl ? (
+                <img src={logoUrl} alt="Custom Bingo Logo" className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover bg-slate-700" />
+            ) : (
+                <CircleDashed className="text-purple-400 w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0"/>
+            )}
+            <h1 className="truncate text-3xl sm:text-4xl font-black tracking-tighter text-white text-left">
+                {headerText}
+            </h1>
+          </button>
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/70 p-1">
+            <button
+              onClick={activeHistoryControls.undo}
+              disabled={!activeHistoryControls.canUndo}
+              className="rounded-lg p-2 text-slate-300 hover:bg-slate-700 hover:text-white disabled:cursor-not-allowed disabled:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-400"
+              aria-label={`Undo ${activePage === 'checker' ? 'card checker' : 'caller'} change`}
+              title="Undo"
+            >
+              <Undo2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={activeHistoryControls.redo}
+              disabled={!activeHistoryControls.canRedo}
+              className="rounded-lg p-2 text-slate-300 hover:bg-slate-700 hover:text-white disabled:cursor-not-allowed disabled:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-400"
+              aria-label={`Redo ${activePage === 'checker' ? 'card checker' : 'caller'} change`}
+              title="Redo"
+            >
+              <Redo2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
         <p className="font-roboto-mono text-lg text-purple-400 flex-shrink-0 ml-4">
             {activePage === 'caller' ? `${availableNumbers.length} left` : 'checker'}
         </p>
@@ -279,12 +404,12 @@ const App: React.FC = () => {
         </nav>
       </header>
 
-      {activePage === 'caller' ? (
-      <main className="w-full max-w-screen-2xl mx-auto grid grid-cols-1 lg:grid-cols-3 2xl:grid-cols-4 gap-8">
+      <main className={`w-full max-w-screen-2xl mx-auto ${activePage === 'caller' ? 'grid grid-cols-1 lg:grid-cols-3 2xl:grid-cols-4 gap-8' : 'hidden'}`}>
         <div className="lg:col-span-2 2xl:col-span-3 flex flex-col gap-8">
           <CurrentNumberDisplay
             currentNumber={pendingNumber || currentNumber}
             isDrawing={isDrawing}
+            shouldReveal={Boolean(pendingNumber)}
             onRevealStateChange={setIsRevealing}
             onRevealComplete={handleRevealComplete}
           />
@@ -309,11 +434,10 @@ const App: React.FC = () => {
             </div>
         </div>
       </main>
-      ) : (
-        <main className="w-full">
-          <CardCheckerPage />
-        </main>
-      )}
+
+      <main className={`w-full ${activePage === 'checker' ? 'block' : 'hidden'}`}>
+        <CardCheckerPage onHistoryChange={setCheckerHistoryControls} />
+      </main>
       
       {activePage === 'caller' && (
         <FloatingDrawButton

@@ -13,6 +13,7 @@ interface FloatingDrawButtonProps {
 
 const FloatingDrawButton: React.FC<FloatingDrawButtonProps> = ({ onClick, isDrawing, isGameOver, gameMode, noPatternSelected }) => {
   const isDisabled = isDrawing || isGameOver || noPatternSelected;
+  const labelClassName = 'ml-2 flex-shrink-0 whitespace-nowrap text-sm sm:text-base font-bold';
 
   const modeConfig = {
     blackout: {
@@ -23,7 +24,7 @@ const FloatingDrawButton: React.FC<FloatingDrawButtonProps> = ({ onClick, isDraw
     pattern: {
       color: 'bg-amber-500 hover:bg-amber-400 focus:ring-amber-300/50',
       icon: <Grid className="w-6 h-6 sm:w-7 sm:w-7" strokeWidth={2.5} />,
-      text: 'Draw Pattern',
+      text: 'Draw Number',
     },
   };
 
@@ -46,18 +47,18 @@ const FloatingDrawButton: React.FC<FloatingDrawButtonProps> = ({ onClick, isDraw
               <span className="bingo-ball bingo-ball-three" />
             </div>
           </div>
-          <span className="ml-3 text-base sm:text-lg font-bold tracking-wide">Rolling...</span>
+          <span className={labelClassName} style={{ whiteSpace: 'nowrap' }}>Rolling...</span>
         </>
       );
     }
     if (isGameOver) {
-      return <span className="text-base sm:text-lg font-bold tracking-wide">Game Over</span>;
+    return <span className="flex-shrink-0 whitespace-nowrap text-sm sm:text-base font-bold" style={{ whiteSpace: 'nowrap' }}>Game Over</span>;
     }
     if (noPatternSelected) {
       return (
         <>
           <Target className="w-6 h-6 sm:w-7 sm:w-7" strokeWidth={2.5} />
-          <span className="ml-3 text-base sm:text-lg font-bold tracking-wide">Select a Pattern</span>
+          <span className={labelClassName} style={{ whiteSpace: 'nowrap' }}>Select a Pattern</span>
         </>
       );
     }
@@ -66,12 +67,17 @@ const FloatingDrawButton: React.FC<FloatingDrawButtonProps> = ({ onClick, isDraw
     return (
       <>
         {icon}
-        <span className="ml-3 text-base sm:text-lg font-bold tracking-wide">{text}</span>
+        <span className={labelClassName} style={{ whiteSpace: 'nowrap' }}>{text}</span>
       </>
     );
   };
 
   const buttonColor = isDisabled && !noPatternSelected ? 'bg-slate-600' : modeConfig[gameMode].color;
+  const buttonShadow = isDisabled && !noPatternSelected
+    ? 'shadow-2xl shadow-black/40'
+    : gameMode === 'pattern'
+      ? 'shadow-2xl shadow-black/50'
+      : 'shadow-2xl shadow-black/50';
 
   return (
     <button
@@ -85,12 +91,12 @@ const FloatingDrawButton: React.FC<FloatingDrawButtonProps> = ({ onClick, isDraw
         h-16 w-52 px-6 sm:h-20 sm:w-56 sm:px-8
         rounded-full
         text-white
-        shadow-xl
         transition-all duration-300 ease-in-out
         focus:outline-none focus:ring-4
+        ${buttonShadow}
         ${buttonColor}
         transform hover:scale-105
-        disabled:bg-slate-600 disabled:text-slate-400 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none
+        disabled:bg-slate-600 disabled:text-slate-400 disabled:cursor-not-allowed disabled:transform-none
       `}
     >
       {getButtonContent()}

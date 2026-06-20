@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, ClipboardList, Download, MousePointerClick, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react';
 import { BINGO_LETTERS, BINGO_RANGES, FREE_SPACE_INDEX, GAME_PATTERNS } from '../constants';
 import { RegisteredCard } from '../types';
@@ -15,6 +15,29 @@ type ConfirmDialog = {
   confirmLabel: string;
   onConfirm: () => void;
 } | null;
+type HistoryControls = {
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+};
+type CheckerSnapshot = {
+  cards: RegisteredCard[];
+  calledNumbers: number[];
+  activePatternId: string;
+  isPlaySetupCollapsed: boolean;
+  manualPatternCells: number[];
+  cardId: string;
+  cardNumbers: (number | null)[];
+};
+type CheckerHistoryBucket = {
+  past: CheckerSnapshot[];
+  future: CheckerSnapshot[];
+  last: CheckerSnapshot | null;
+};
+interface CardCheckerPageProps {
+  onHistoryChange?: (controls: HistoryControls) => void;
+}
 
 const parseBingoNumber = (value: string): number | null => {
   const match = value.match(/\d+/);
@@ -82,9 +105,14 @@ const normalizeCards = (value: unknown): RegisteredCard[] => {
   });
 };
 
-const CardCheckerPage: React.FC = () => {
+const CardCheckerPage: React.FC<CardCheckerPageProps> = ({ onHistoryChange }) => {
   const importInputRef = useRef<HTMLInputElement>(null);
   const cardInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const checkerHistoriesRef = useRef<Record<CheckerMode, CheckerHistoryBucket>>({
+    prepare: { past: [], future: [], last: null },
+    play: { past: [], future: [], last: null },
+  });
+  const isRestoringCheckerRef = useRef(false);
   const [cards, setCards] = useState<RegisteredCard[]>(() => {
     try {
       const saved = localStorage.getItem('bingo-checker-cards');
@@ -112,6 +140,7 @@ const CardCheckerPage: React.FC = () => {
   const [checkerMode, setCheckerMode] = useState<CheckerMode>(() => {
     return localStorage.getItem('bingo-checker-mode') === 'play' ? 'play' : 'prepare';
   });
+  const previousCheckerModeRef = useRef<CheckerMode>(checkerMode);
   const [isPlaySetupCollapsed, setIsPlaySetupCollapsed] = useState<boolean>(() => {
     return localStorage.getItem('bingo-checker-playSetupCollapsed') === 'true';
   });
@@ -131,6 +160,8 @@ const CardCheckerPage: React.FC = () => {
   const [winnerPopup, setWinnerPopup] = useState<WinnerPopup>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog>(null);
   const [armedRemoveCardId, setArmedRemoveCardId] = useState<string | null>(null);
+  const armedRemoveCardIdRef = useRef<string | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const requestConfirmation = (dialog: NonNullable<ConfirmDialog>) => {
     setConfirmDialog(dialog);
@@ -140,6 +171,102 @@ const CardCheckerPage: React.FC = () => {
     confirmDialog?.onConfirm();
     setConfirmDialog(null);
   };
+
+  const setArmedCardForRemoval = useCallback((cardId: string | null) => {
+    armedRemoveCardIdRef.current = cardId;
+    setArmedRemoveCardId(cardId);
+  }, []);
+
+  const checkerSnapshot = useMemo<CheckerSnapshot>(() => ({
+    cards,
+    calledNumbers,
+    activePatternId,
+    isPlaySetupCollapsed,
+    manualPatternCells,
+    cardId,
+    cardNumbers,
+  }), [activePatternId, calledNumbers, cardId, cardNumbers, cards, isPlaySetupCollapsed, manualPatternCells]);
+
+  const checkerSnapshotKey = useMemo(() => JSON.stringify(checkerSnapshot), [checkerSnapshot]);
+
+  const restoreCheckerSnapshot = useCallback((snapshot: CheckerSnapshot) => {
+    isRestoringCheckerRef.current = true;
+    setCards(snapshot.cards);
+    setCalledNumbers(snapshot.calledNumbers);
+    setActivePatternId(snapshot.activePatternId);
+    setIsPlaySetupCollapsed(snapshot.isPlaySetupCollapsed);
+    setManualPatternCells(snapshot.manualPatternCells);
+    setCardId(snapshot.cardId);
+    setCardNumbers(snapshot.cardNumbers);
+    setWinnerPopup(null);
+    setConfirmDialog(null);
+    setArmedCardForRemoval(null);
+  }, [setArmedCardForRemoval]);
+
+  const undoChecker = useCallback(() => {
+    const history = checkerHistoriesRef.current[checkerMode];
+    const previous = history.past.pop();
+    if (!previous || !history.last) return;
+    history.future.push(history.last);
+    history.last = previous;
+    restoreCheckerSnapshot(previous);
+    setHistoryVersion((value) => value + 1);
+  }, [checkerMode, restoreCheckerSnapshot]);
+
+  const redoChecker = useCallback(() => {
+    const history = checkerHistoriesRef.current[checkerMode];
+    const next = history.future.pop();
+    if (!next || !history.last) return;
+    history.past.push(history.last);
+    history.last = next;
+    restoreCheckerSnapshot(next);
+    setHistoryVersion((value) => value + 1);
+  }, [checkerMode, restoreCheckerSnapshot]);
+
+  useEffect(() => {
+    const history = checkerHistoriesRef.current[checkerMode];
+    const didSwitchCheckerMode = previousCheckerModeRef.current !== checkerMode;
+    previousCheckerModeRef.current = checkerMode;
+
+    if (didSwitchCheckerMode) {
+      history.future = [];
+      history.last = checkerSnapshot;
+      setHistoryVersion((value) => value + 1);
+      return;
+    }
+
+    if (!history.last) {
+      history.last = checkerSnapshot;
+      setHistoryVersion((value) => value + 1);
+      return;
+    }
+
+    if (isRestoringCheckerRef.current) {
+      history.last = checkerSnapshot;
+      isRestoringCheckerRef.current = false;
+      setHistoryVersion((value) => value + 1);
+      return;
+    }
+
+    const previousKey = JSON.stringify(history.last);
+    if (previousKey === checkerSnapshotKey) return;
+
+    history.past.push(history.last);
+    history.future = [];
+    history.last = checkerSnapshot;
+    setHistoryVersion((value) => value + 1);
+  }, [checkerMode, checkerSnapshot, checkerSnapshotKey]);
+
+  const historyControls = useMemo<HistoryControls>(() => ({
+    canUndo: checkerHistoriesRef.current[checkerMode].past.length > 0,
+    canRedo: checkerHistoriesRef.current[checkerMode].future.length > 0,
+    undo: undoChecker,
+    redo: redoChecker,
+  }), [checkerMode, historyVersion, redoChecker, undoChecker]);
+
+  useEffect(() => {
+    onHistoryChange?.(historyControls);
+  }, [historyControls, onHistoryChange]);
 
   const activePattern = useMemo(
     () => GAME_PATTERNS.find((pattern) => pattern.id === activePatternId) || GAME_PATTERNS[0],
@@ -202,8 +329,8 @@ const CardCheckerPage: React.FC = () => {
   }, [activePatternId, calledNumbers, cards, checkerMode, isPlaySetupCollapsed, manualPatternCells]);
 
   useEffect(() => {
-    setArmedRemoveCardId(null);
-  }, [cards.length, checkerMode]);
+    setArmedCardForRemoval(null);
+  }, [cards.length, checkerMode, setArmedCardForRemoval]);
 
   useEffect(() => {
     if (!armedRemoveCardId) return;
@@ -211,12 +338,12 @@ const CardCheckerPage: React.FC = () => {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest(`[data-card-id="${armedRemoveCardId}"]`)) return;
-      setArmedRemoveCardId(null);
+      setArmedCardForRemoval(null);
     };
 
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [armedRemoveCardId]);
+  }, [armedRemoveCardId, setArmedCardForRemoval]);
 
   const handlePatternStarterChange = (patternId: string) => {
     const selectedPattern = GAME_PATTERNS.find((pattern) => pattern.id === patternId) || GAME_PATTERNS[0];
@@ -817,6 +944,7 @@ const CardCheckerPage: React.FC = () => {
                 return (
                   <article
                     key={card.id}
+                    data-card-id={card.id}
                     className={`bg-slate-800/50 p-4 rounded-2xl border ${
                       isWinner ? 'border-emerald-300 shadow-lg shadow-emerald-500/20' : 'border-slate-700'
                     }`}
@@ -830,15 +958,15 @@ const CardCheckerPage: React.FC = () => {
                       </div>
                       <button
                         onClick={() => {
-                          if (isArmedForRemoval) {
+                          if (armedRemoveCardIdRef.current === card.id) {
                             setCards((prev) => prev.filter((item) => item.id !== card.id));
                             setWinnerPopup(null);
                             setMessage(`Card "${card.id}" removed.`);
-                            setArmedRemoveCardId(null);
+                            setArmedCardForRemoval(null);
                             return;
                           }
 
-                          setArmedRemoveCardId(card.id);
+                          setArmedCardForRemoval(card.id);
                           setMessage(`Click remove on card "${card.id}" again to delete.`);
                         }}
                         className={`p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400/50 ${
