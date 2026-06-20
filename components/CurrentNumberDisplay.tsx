@@ -5,6 +5,8 @@ import { BINGO_LETTERS, BINGO_RANGES } from '../constants';
 interface CurrentNumberDisplayProps {
   currentNumber: BingoNumber | null;
   isDrawing: boolean;
+  onRevealStateChange?: (isRevealing: boolean) => void;
+  onRevealComplete?: (number: BingoNumber) => void;
 }
 
 const getRandomBingoNumber = (): BingoNumber => {
@@ -14,12 +16,30 @@ const getRandomBingoNumber = (): BingoNumber => {
     return { letter, number, called: false };
 }
 
-const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumber, isDrawing }) => {
+const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumber, isDrawing, onRevealStateChange, onRevealComplete }) => {
   const [animatingNumber, setAnimatingNumber] = useState<BingoNumber | null>(null);
+  const [revealStep, setRevealStep] = useState(3);
   const intervalRef = useRef<number | null>(null);
+  const revealCompleteStep = currentNumber ? String(currentNumber.number).length + 1 : 3;
+  const isRevealing = !isDrawing && Boolean(currentNumber) && revealStep < revealCompleteStep;
+  const completedRevealRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    onRevealStateChange?.(isRevealing);
+  }, [isRevealing, onRevealStateChange]);
+
+  useEffect(() => {
+    if (isDrawing || !currentNumber) return;
+
+    const revealKey = `${currentNumber.letter}-${currentNumber.number}`;
+    if (revealStep >= revealCompleteStep && completedRevealRef.current !== revealKey) {
+      completedRevealRef.current = revealKey;
+      onRevealComplete?.(currentNumber);
+    }
+  }, [currentNumber, isDrawing, onRevealComplete, revealCompleteStep, revealStep]);
   
   useEffect(() => {
-    if (isDrawing) {
+    if (isDrawing || isRevealing) {
       intervalRef.current = window.setInterval(() => {
         setAnimatingNumber(getRandomBingoNumber());
       }, 60);
@@ -35,17 +55,58 @@ const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumb
         clearInterval(intervalRef.current);
       }
     };
-  }, [isDrawing]);
+  }, [isDrawing, isRevealing]);
+
+  useEffect(() => {
+    if (isDrawing || !currentNumber) {
+      setRevealStep(0);
+      completedRevealRef.current = null;
+      return;
+    }
+
+    setRevealStep(0);
+    completedRevealRef.current = null;
+    const timers = [
+      window.setTimeout(() => setRevealStep(1), 350),
+      window.setTimeout(() => setRevealStep(2), 1200),
+    ];
+
+    if (String(currentNumber.number).length > 1) {
+      timers.push(window.setTimeout(() => setRevealStep(3), 2050));
+    }
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [currentNumber, isDrawing]);
 
   const displayContent = () => {
     const numberToDisplay = isDrawing ? animatingNumber : currentNumber;
+    const rollingNumber = animatingNumber || numberToDisplay;
 
-    if (numberToDisplay) {
-      const animationClass = !isDrawing ? 'animate-fade-in' : '';
+    if (numberToDisplay && rollingNumber) {
+      const finalDigits = String(numberToDisplay.number);
+      const rollingDigits = String(rollingNumber.number).padStart(finalDigits.length, '0').slice(-finalDigits.length);
+      const shouldReveal = !isDrawing;
+      const displayLetter = shouldReveal && revealStep >= 1 ? numberToDisplay.letter : rollingNumber.letter;
       return (
-        <div className={`flex items-baseline justify-center ${animationClass}`}>
-          <span className="text-8xl md:text-9xl font-black text-cyan-400 mr-2">{numberToDisplay.letter}</span>
-          <span className="text-8xl md:text-9xl font-black text-white font-roboto-mono">{numberToDisplay.number}</span>
+        <div className="flex items-baseline justify-center">
+          <span className={`text-8xl md:text-9xl font-black mr-2 reveal-piece ${
+            shouldReveal && revealStep >= 1 ? 'text-cyan-400' : 'text-slate-500'
+          }`}>
+            {displayLetter}
+          </span>
+          <span className="text-8xl md:text-9xl font-black font-roboto-mono tabular-nums">
+            {finalDigits.split('').map((digit, index) => {
+              const digitRevealed = shouldReveal && revealStep >= index + 2;
+              return (
+              <span
+                key={`${digit}-${index}`}
+                className={`inline-block reveal-piece ${digitRevealed ? 'text-white' : 'text-slate-400'}`}
+              >
+                {digitRevealed ? digit : rollingDigits[index]}
+              </span>
+              );
+            })}
+          </span>
         </div>
       );
     }
@@ -58,15 +119,13 @@ const CurrentNumberDisplay: React.FC<CurrentNumberDisplayProps> = ({ currentNumb
   };
   
   return (
-    <div className="bg-slate-800/50 w-full h-48 md:h-56 rounded-2xl flex items-center justify-center border border-slate-700 shadow-lg overflow-hidden">
+    <div className={`w-full h-48 md:h-56 rounded-2xl flex items-center justify-center border shadow-lg overflow-hidden ${
+      isDrawing || isRevealing ? 'bg-slate-800/40 border-slate-700' : 'bg-slate-800/50 border-slate-700'
+    }`}>
       {displayContent()}
        <style>{`
-        @keyframes fade-in {
-          from { opacity: 0; transform: scale(0.8) translateY(20px); }
-          to { opacity: 1; transform: scale(1) translateY(0); }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        .reveal-piece {
+          transition: opacity 0.22s ease, transform 0.22s ease;
         }
       `}</style>
     </div>

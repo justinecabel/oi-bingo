@@ -9,6 +9,12 @@ type WinnerPopup = {
   number: number;
   winners: RegisteredCard[];
 } | null;
+type ConfirmDialog = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+} | null;
 
 const parseBingoNumber = (value: string): number | null => {
   const match = value.match(/\d+/);
@@ -123,6 +129,17 @@ const CardCheckerPage: React.FC = () => {
   const [cardNumbers, setCardNumbers] = useState<(number | null)[]>(emptyCardNumbers);
   const [message, setMessage] = useState('');
   const [winnerPopup, setWinnerPopup] = useState<WinnerPopup>(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog>(null);
+  const [armedRemoveCardId, setArmedRemoveCardId] = useState<string | null>(null);
+
+  const requestConfirmation = (dialog: NonNullable<ConfirmDialog>) => {
+    setConfirmDialog(dialog);
+  };
+
+  const handleConfirmDialog = () => {
+    confirmDialog?.onConfirm();
+    setConfirmDialog(null);
+  };
 
   const activePattern = useMemo(
     () => GAME_PATTERNS.find((pattern) => pattern.id === activePatternId) || GAME_PATTERNS[0],
@@ -149,6 +166,28 @@ const CardCheckerPage: React.FC = () => {
     return getWinningCards(calledNumbers);
   }, [calledSet, cards, manualPatternCells]);
 
+  const winnerIds = useMemo(() => new Set(winners.map((card) => card.id.toLowerCase())), [winners]);
+  const requiredHitCount = manualPatternCells.length;
+  const cardHitCounts = useMemo(() => {
+    return new Map(
+      cards.map((card) => [
+        card.id.toLowerCase(),
+        manualPatternCells.filter((cellIndex) => {
+          const cardNumber = card.numbers[cellIndex];
+          return typeof cardNumber === 'number' && calledSet.has(cardNumber);
+        }).length,
+      ]),
+    );
+  }, [calledSet, cards, manualPatternCells]);
+  const playCards = useMemo(
+    () =>
+      cards
+        .map((card, index) => ({ card, hits: cardHitCounts.get(card.id.toLowerCase()) || 0, index }))
+        .sort((first, second) => second.hits - first.hits || first.index - second.index)
+        .map(({ card }) => card),
+    [cardHitCounts, cards],
+  );
+
   useEffect(() => {
     try {
       localStorage.setItem('bingo-checker-cards', JSON.stringify(cards));
@@ -161,6 +200,23 @@ const CardCheckerPage: React.FC = () => {
       console.error('Failed to save checker state to localStorage', error);
     }
   }, [activePatternId, calledNumbers, cards, checkerMode, isPlaySetupCollapsed, manualPatternCells]);
+
+  useEffect(() => {
+    setArmedRemoveCardId(null);
+  }, [cards.length, checkerMode]);
+
+  useEffect(() => {
+    if (!armedRemoveCardId) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(`[data-card-id="${armedRemoveCardId}"]`)) return;
+      setArmedRemoveCardId(null);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [armedRemoveCardId]);
 
   const handlePatternStarterChange = (patternId: string) => {
     const selectedPattern = GAME_PATTERNS.find((pattern) => pattern.id === patternId) || GAME_PATTERNS[0];
@@ -418,8 +474,8 @@ const CardCheckerPage: React.FC = () => {
       </div>
 
       {checkerMode === 'play' ? (
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(340px,420px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] gap-6 2xl:gap-8">
-      <section className="flex flex-col gap-6 xl:sticky xl:top-6 xl:self-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] gap-6 2xl:gap-8">
+      <section className="flex flex-col gap-6 lg:sticky lg:top-6 lg:self-start">
         <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -430,7 +486,7 @@ const CardCheckerPage: React.FC = () => {
             </div>
             <div className="flex flex-shrink-0 items-center gap-3">
               {isPlaySetupCollapsed && (
-                <div className="grid w-12 grid-cols-5 gap-0.5 xl:hidden" aria-hidden="true">
+                <div className="grid w-12 grid-cols-5 gap-0.5 lg:hidden" aria-hidden="true">
                   {Array.from({ length: 25 }).map((_, index) => (
                     <div
                       key={index}
@@ -448,7 +504,7 @@ const CardCheckerPage: React.FC = () => {
               <span className="font-roboto-mono text-sm text-cyan-300">{cards.length} cards</span>
               <button
                 onClick={() => setIsPlaySetupCollapsed((prev) => !prev)}
-                className="inline-flex items-center justify-center rounded-lg bg-slate-700 p-2 text-slate-200 hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-400 xl:hidden"
+                className="inline-flex items-center justify-center rounded-lg bg-slate-700 p-2 text-slate-200 hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-400 lg:hidden"
                 aria-expanded={!isPlaySetupCollapsed}
                 aria-controls="play-setup-body"
                 aria-label={isPlaySetupCollapsed ? 'Expand play setup' : 'Collapse play setup'}
@@ -459,7 +515,7 @@ const CardCheckerPage: React.FC = () => {
             </div>
           </div>
 
-          <div id="play-setup-body" className={`mt-4 ${isPlaySetupCollapsed ? 'hidden xl:block' : 'block'}`}>
+          <div id="play-setup-body" className={`mt-4 ${isPlaySetupCollapsed ? 'hidden lg:block' : 'block'}`}>
               <label htmlFor="game-pattern" className="block text-sm font-semibold text-slate-400 mb-2">
                 Pattern Starter
               </label>
@@ -480,9 +536,16 @@ const CardCheckerPage: React.FC = () => {
                 <p className="text-sm font-semibold text-slate-400">Manual Pattern</p>
                 <button
                   onClick={() => {
-                    setManualPatternCells([]);
-                    setWinnerPopup(null);
-                    setMessage('Manual pattern cleared.');
+                    requestConfirmation({
+                      title: 'Clear Pattern',
+                      message: 'Clear the manual winning pattern?',
+                      confirmLabel: 'Clear',
+                      onConfirm: () => {
+                        setManualPatternCells([]);
+                        setWinnerPopup(null);
+                        setMessage('Manual pattern cleared.');
+                      },
+                    });
                   }}
                   disabled={manualPatternCells.length === 0}
                   className="text-sm font-semibold text-slate-400 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed"
@@ -491,7 +554,7 @@ const CardCheckerPage: React.FC = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-5 gap-1" aria-label="Manual winning pattern drawing board">
+              <div className="grid w-full max-w-[320px] grid-cols-5 gap-1" aria-label="Manual winning pattern drawing board">
                 {Array.from({ length: 25 }).map((_, index) => {
                   const selected = manualPatternSet.has(index);
                   const freeSpace = isFreeSpace(index);
@@ -534,7 +597,7 @@ const CardCheckerPage: React.FC = () => {
               {BINGO_RANGES.map(({ letter, min, max }) => (
                 <div key={letter} className="min-w-0">
                   <div className="text-center text-xl font-black text-cyan-300 mb-2">{letter}</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
                     {Array.from({ length: max - min + 1 }, (_, offset) => min + offset).map((number) => {
                       const isCalled = calledSet.has(number);
                       return (
@@ -564,9 +627,16 @@ const CardCheckerPage: React.FC = () => {
               <h3 className="text-xl font-bold text-slate-100">Called Numbers</h3>
               <button
                 onClick={() => {
-                  setCalledNumbers([]);
-                  setWinnerPopup(null);
-                  setMessage('Host calls cleared.');
+                  requestConfirmation({
+                    title: 'Clear Results',
+                    message: 'Clear all called numbers and current results?',
+                    confirmLabel: 'Clear',
+                    onConfirm: () => {
+                      setCalledNumbers([]);
+                      setWinnerPopup(null);
+                      setMessage('Host calls cleared.');
+                    },
+                  });
                 }}
                 disabled={calledNumbers.length === 0}
                 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-400 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed"
@@ -619,11 +689,13 @@ const CardCheckerPage: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-4">
-              {cards.map((card) => {
-                const isWinner = winners.some((winner) => winner.id === card.id);
+              {playCards.map((card) => {
+                const isWinner = winnerIds.has(card.id.toLowerCase());
+                const hitCount = cardHitCounts.get(card.id.toLowerCase()) || 0;
                 return (
                   <article
                     key={card.id}
+                    data-card-id={card.id}
                     className={`bg-slate-800/50 p-4 rounded-2xl border ${
                       isWinner ? 'border-emerald-300 shadow-lg shadow-emerald-500/20' : 'border-slate-700'
                     }`}
@@ -632,7 +704,7 @@ const CardCheckerPage: React.FC = () => {
                       <div className="min-w-0">
                         <h4 className="font-black text-white truncate">{card.id}</h4>
                         <p className={`text-sm ${isWinner ? 'text-emerald-300' : 'text-slate-500'}`}>
-                          Manual pattern from Game {activePattern.game}
+                          {hitCount}/{requiredHitCount} hits - Game {activePattern.game}
                         </p>
                       </div>
                       {isWinner && <CheckCircle2 className="w-5 h-5 text-emerald-300 flex-shrink-0" />}
@@ -664,30 +736,30 @@ const CardCheckerPage: React.FC = () => {
       </section>
       </div>
       ) : (
-      <section className="grid grid-cols-1 xl:grid-cols-[minmax(380px,520px)_minmax(0,1fr)] gap-6 min-w-0 items-start">
-        <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 xl:sticky xl:top-6">
-          <div className="flex items-center justify-between gap-4 mb-4">
-            <h3 className="text-xl font-bold text-slate-100">Register Card</h3>
+      <section className="grid grid-cols-1 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] gap-6 min-w-0 items-start">
+        <div className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 lg:sticky lg:top-6">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h3 className="text-lg font-bold text-slate-100">Register Card</h3>
             <input
               type="text"
               value={cardId}
               onChange={(event) => setCardId(event.target.value)}
               placeholder="Card ID"
-              className="w-36 sm:w-48 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400"
+              className="w-32 sm:w-40 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400"
               aria-label="Card ID"
             />
           </div>
 
-          <div className="w-full max-w-xl mx-auto">
-            <div className="grid grid-cols-5 gap-2 mb-2">
+          <div className="w-full max-w-[340px] mx-auto">
+            <div className="grid grid-cols-5 gap-1.5 mb-1.5">
               {BINGO_LETTERS.map((letter) => (
-                <div key={letter} className="text-center text-lg font-black text-cyan-300">
+                <div key={letter} className="text-center text-base font-black text-cyan-300">
                   {letter}
                 </div>
               ))}
             </div>
 
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-1.5">
               {Array.from({ length: 25 }).map((_, index) => {
                 const range = getRangeForCell(index);
                 return (
@@ -706,7 +778,7 @@ const CardCheckerPage: React.FC = () => {
                     disabled={isFreeSpace(index)}
                     placeholder={isFreeSpace(index) ? 'FREE' : `${range.min}-${range.max}`}
                     title={isFreeSpace(index) ? 'Free space' : `${range.letter}: ${range.min}-${range.max}`}
-                    className={`aspect-square min-w-0 rounded-md text-center font-roboto-mono font-bold text-base sm:text-lg border focus:outline-none focus:ring-2 focus:ring-cyan-400 ${
+                    className={`aspect-square min-w-0 rounded-md text-center font-roboto-mono font-bold text-sm border focus:outline-none focus:ring-2 focus:ring-cyan-400 ${
                       isFreeSpace(index)
                         ? 'bg-slate-700 border-slate-600 text-slate-300 placeholder-slate-300'
                         : 'bg-slate-950 border-slate-700 text-white placeholder-slate-700'
@@ -720,7 +792,7 @@ const CardCheckerPage: React.FC = () => {
 
           <button
             onClick={handleAddCard}
-            className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-500 focus:outline-none focus:ring-4 focus:ring-purple-400/40"
+            className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-500 focus:outline-none focus:ring-4 focus:ring-purple-400/40"
           >
             <Plus className="w-5 h-5" />
             Add Card
@@ -741,6 +813,7 @@ const CardCheckerPage: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
               {cards.map((card) => {
                 const isWinner = winners.some((winner) => winner.id === card.id);
+                const isArmedForRemoval = armedRemoveCardId === card.id;
                 return (
                   <article
                     key={card.id}
@@ -752,14 +825,29 @@ const CardCheckerPage: React.FC = () => {
                       <div className="min-w-0">
                         <h4 className="font-black text-white truncate">{card.id}</h4>
                         <p className={`text-sm ${isWinner ? 'text-emerald-300' : 'text-slate-500'}`}>
-                          Manual pattern from Game {activePattern.game}
+                          {isArmedForRemoval ? 'Click again to delete' : `Manual pattern from Game ${activePattern.game}`}
                         </p>
                       </div>
                       <button
-                        onClick={() => setCards((prev) => prev.filter((item) => item.id !== card.id))}
-                        className="p-2 rounded-lg text-slate-500 hover:text-red-300 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/50"
-                        aria-label={`Remove card ${card.id}`}
-                        title="Remove card"
+                        onClick={() => {
+                          if (isArmedForRemoval) {
+                            setCards((prev) => prev.filter((item) => item.id !== card.id));
+                            setWinnerPopup(null);
+                            setMessage(`Card "${card.id}" removed.`);
+                            setArmedRemoveCardId(null);
+                            return;
+                          }
+
+                          setArmedRemoveCardId(card.id);
+                          setMessage(`Click remove on card "${card.id}" again to delete.`);
+                        }}
+                        className={`p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400/50 ${
+                          isArmedForRemoval
+                            ? 'bg-red-500 text-white hover:bg-red-400'
+                            : 'text-slate-500 hover:text-red-300 hover:bg-red-900/30'
+                        }`}
+                        aria-label={isArmedForRemoval ? `Confirm remove card ${card.id}` : `Remove card ${card.id}`}
+                        title={isArmedForRemoval ? 'Click again to delete' : 'Remove card'}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -789,6 +877,51 @@ const CardCheckerPage: React.FC = () => {
           )}
         </div>
       </section>
+      )}
+      {confirmDialog && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-dialog-title"
+          onClick={() => setConfirmDialog(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-slate-600 bg-slate-900 p-5 text-slate-100 shadow-2xl shadow-black/30"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 id="confirm-dialog-title" className="text-xl font-black text-white">
+                  {confirmDialog.title}
+                </h3>
+                <p className="mt-2 text-sm text-slate-400">{confirmDialog.message}</p>
+              </div>
+              <button
+                onClick={() => setConfirmDialog(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
+                aria-label="Cancel confirmation"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setConfirmDialog(null)}
+                className="rounded-lg bg-slate-800 px-4 py-2.5 font-bold text-slate-200 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDialog}
+                className="rounded-lg bg-red-500 px-4 py-2.5 font-bold text-white hover:bg-red-400 focus:outline-none focus:ring-2 focus:ring-red-300"
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {winnerPopup && (
         <div
